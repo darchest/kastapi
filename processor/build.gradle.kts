@@ -37,5 +37,13 @@ publishing {
     }
     repositories {
         mavenLocal()
+        maven {
+            name = "darchest"
+            url = uri("https://mvn.darchest.org/repository/snapshots/")
+            credentials {
+                username = findProperty("mvn.darchest.user") as String? ?: ""
+                password = findProperty("mvn.darchest.password") as String? ?: ""
+            }
+        }
     }
 }
