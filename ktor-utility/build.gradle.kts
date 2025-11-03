@@ -1,3 +1,5 @@
+val ktorVersion = "2.3.12"
+
 plugins {
     kotlin("jvm")
     `maven-publish`
@@ -11,13 +13,7 @@ repositories {
 }
 
 dependencies {
-    implementation(project(":annotations"))
-    implementation("com.google.devtools.ksp:symbol-processing-api:2.0.10-1.0.24")
-
-    implementation("io.swagger.core.v3:swagger-core:2.2.25")
-    implementation("io.swagger.core.v3:swagger-models:2.2.25")
-    implementation("com.fasterxml.jackson.dataformat:jackson-dataformat-yaml:2.17.0")
-
+    implementation("io.ktor:ktor-server-core-jvm:${ktorVersion}")
 
     testImplementation(kotlin("test"))
 }

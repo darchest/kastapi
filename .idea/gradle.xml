@@ -10,6 +10,7 @@
           <set>
             <option value="$PROJECT_DIR$" />
             <option value="$PROJECT_DIR$/annotations" />
+            <option value="$PROJECT_DIR$/ktor-utility" />
             <option value="$PROJECT_DIR$/processor" />
           </set>
         </option>

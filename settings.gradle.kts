@@ -4,3 +4,4 @@ plugins {
 rootProject.name = "kastapi"
 include("annotations")
 include("processor")
+include("ktor-utility")

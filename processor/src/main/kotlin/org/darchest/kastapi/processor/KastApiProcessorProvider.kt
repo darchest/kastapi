@@ -1,3 +1,8 @@
+/*
+ * Copyright 2021-2025, Darchest and contributors.
+ * Licensed under the Apache License, Version 2.0
+ */
+
 package org.darchest.kastapi.processor
 
 import com.google.devtools.ksp.processing.SymbolProcessor
@@ -6,6 +11,6 @@ import com.google.devtools.ksp.processing.SymbolProcessorProvider
 
 class KastApiProcessorProvider: SymbolProcessorProvider {
     override fun create(environment: SymbolProcessorEnvironment): SymbolProcessor {
-        return KastApiProcessor(environment.codeGenerator, environment.logger)
+        return KastApiProcessor(environment.codeGenerator, environment.logger, environment.options)
     }
 }
