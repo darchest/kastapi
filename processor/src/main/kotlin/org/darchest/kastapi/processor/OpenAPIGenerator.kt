@@ -5,11 +5,8 @@
 
 package org.darchest.kastapi.processor
 
-import com.google.devtools.ksp.KspExperimental
 import com.google.devtools.ksp.getClassDeclarationByName
-import com.google.devtools.ksp.processing.CodeGenerator
 import com.google.devtools.ksp.processing.Dependencies
-import com.google.devtools.ksp.processing.KSPLogger
 import com.google.devtools.ksp.processing.Resolver
 import com.google.devtools.ksp.symbol.ClassKind
 import com.google.devtools.ksp.symbol.KSClassDeclaration
@@ -31,13 +28,9 @@ import java.util.*
 
 typealias SchemaConverter = (String) -> Schema<*>
 
-class OpenAPIGenerator(
-    private val resolver: Resolver,
-    private val codeGenerator: CodeGenerator,
-    private val logger: KSPLogger,
-    private val options: Map<String, String>
-) {
-    fun generateFiles(packages: Set<PackageInfo>) {
+class OpenAPIGenerator: KastAPIGenerator() {
+
+    override fun generateFiles(packages: Set<PackageInfo>) {
         val file = codeGenerator.createNewFileByPath(Dependencies(false), "openapi", "yaml")
 
         val api = OpenAPI()
@@ -218,6 +211,9 @@ class OpenAPIGenerator(
             in setOf("kotlin.Float", "kotlin.Double") -> return NumberSchema()
             "kotlin.Boolean" -> return BooleanSchema()
             "org.darchest.kastapi.ktor.utility.InMemoryFile" -> return Schema<Any>().type("string").format("binary")
+            "com.google.gson.JsonObject" -> return ObjectSchema()
+                    .additionalProperties(true)
+            "com.google.gson.JsonArray" -> return ArraySchema().items(StringSchema())
         }
 
         val schema = ObjectSchema()
@@ -242,7 +238,7 @@ class OpenAPIGenerator(
                 typeName == "kotlin.Boolean" -> BooleanSchema()
 
                 // list or set
-                typeName == "kotlin.collections.List" || typeName == "kotlin.collections.Set" -> {
+                typeName in setOf("kotlin.collections.List", "kotlin.collections.Set", "com.google.gson.JsonArray") -> {
                     val argType = type.arguments.firstOrNull()?.type?.resolve()
                     val itemsSchema = if (argType != null) {
                         resolveSchemaForKSType(argType, cache)
@@ -251,7 +247,7 @@ class OpenAPIGenerator(
                 }
 
                 // map
-                typeName == "kotlin.collections.Map" -> {
+                typeName in setOf("kotlin.collections.Map", "com.google.gson.JsonObject") -> {
                     val keyType = type.arguments.getOrNull(0)?.type?.resolve()
                     val valueType = type.arguments.getOrNull(1)?.type?.resolve()
                     val additionalProps = if (valueType != null) {

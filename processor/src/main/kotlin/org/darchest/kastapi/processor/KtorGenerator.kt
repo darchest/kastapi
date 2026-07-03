@@ -5,21 +5,13 @@
 
 package org.darchest.kastapi.processor
 
-import com.google.devtools.ksp.processing.CodeGenerator
 import com.google.devtools.ksp.processing.Dependencies
-import com.google.devtools.ksp.processing.KSPLogger
-import com.google.devtools.ksp.processing.Resolver
 import com.google.devtools.ksp.symbol.KSFile
 import java.io.OutputStreamWriter
 
-class KtorGenerator(
-    private val resolver: Resolver,
-    private val codeGenerator: CodeGenerator,
-    private val logger: KSPLogger,
-    private val options: Map<String, String>
-) {
+class KtorGenerator: KastAPIGenerator() {
 
-    fun generateFiles(packages: Set<PackageInfo>) {
+    override fun generateFiles(packages: Set<PackageInfo>) {
         val packageName = "org.darchest.kastapi.generated"
         val className = "GeneratedRoutes"
 
@@ -130,13 +122,16 @@ class KtorGenerator(
         }
 
         val allWrappers = mutableListOf<String>()
-        if (options.containsKey("org.darchest.kastapi.defaultWrappers"))
-            allWrappers.addAll(options["org.darchest.kastapi.defaultWrappers"]!!.split(";"))
+        val globalWrappers = KastApiProcessor.collectIndexedValues(options, "org.darchest.kastapi.defaultWrappers")
+        allWrappers.addAll(globalWrappers)
 
         allWrappers.addAll(bundle.wrappers.distinct())
-        allWrappers.removeAll(bundle.removedWrappers)
+        allWrappers.removeAll { bundle.removedWrappers.contains(if (it.contains('(')) it.substring(0, it.indexOf('(')) else it) }
         allWrappers.addAll(endpoint.wrappers.distinct())
-        allWrappers.removeAll(endpoint.removedWrappers)
+        allWrappers.removeAll { endpoint.removedWrappers.contains(if (it.contains('(')) it.substring(0, it.indexOf('(')) else it) }
+
+        if (endpoint.removeAllWrappers)
+            allWrappers.clear()
 
         writer.write("$spacer    val api = ${bundle.cls.qualifiedName!!.asString()}()\n")
         writer.write("$spacer    val result = ")
@@ -145,7 +140,15 @@ class KtorGenerator(
                 writer.write("$spacer    ")
                 repeat(ind) { writer.write("    ") }
             }
-            writer.write("$wrapper().wrap {\n")
+            var wrpName = wrapper
+            var wrpParams: String? = null
+            if (wrpName.contains("(") && wrpName.endsWith(")")) {
+                wrpName = wrapper.substring(0, wrapper.indexOf('('))
+                wrpParams = wrapper.substring(wrapper.indexOf('(') + 1, wrapper.length - 1)
+            }
+            writer.write("$wrpName(")
+            wrpParams?.let { writer.write(it) }
+            writer.write(").wrap {\n")
         }
         if (allWrappers.isNotEmpty()) {
             writer.write("$spacer    ")

@@ -51,6 +51,10 @@ annotation class AddWrappers(vararg val wrappers: KClass<*>)
 @Retention(AnnotationRetention.SOURCE)
 annotation class RemoveWrappers(vararg val wrappers: KClass<*>)
 
+@Target(AnnotationTarget.FUNCTION)
+@Retention(AnnotationRetention.SOURCE)
+annotation class RemoveAllWrappers
+
 @Target(AnnotationTarget.VALUE_PARAMETER)
 @Retention(AnnotationRetention.SOURCE)
 annotation class Query

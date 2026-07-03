@@ -14,6 +14,7 @@ import com.google.devtools.ksp.processing.Resolver
 import com.google.devtools.ksp.processing.SymbolProcessor
 import com.google.devtools.ksp.symbol.*
 import org.darchest.kastapi.annotations.*
+import kotlin.reflect.KClass
 
 class PackageInfo(
     val name: String
@@ -39,6 +40,7 @@ class EndpointInfo(
     var codeOnSuccess: Int? = null
     val wrappers = mutableListOf<String>()
     val removedWrappers = mutableListOf<String>()
+    var removeAllWrappers = false
     var pairWithCode: Boolean = false
     var fileResult: Boolean = false
     var returnType: String = "Unit"
@@ -90,7 +92,7 @@ class KastApiProcessor(
 
             pkg.bundles += bundle
 
-            val functions = routeCls.getDeclaredFunctions()
+            val functions = collectAllFunctions(routeCls)
 
             for (fn in functions) {
                 val pair = getFnHttpMethodAndPath(fn) ?: continue
@@ -120,6 +122,7 @@ class KastApiProcessor(
 
                 endpointInfo.wrappers.addAll(getAddWrappersList(fn))
                 endpointInfo.removedWrappers.addAll(getRemoveWrappersList(fn))
+                endpointInfo.removeAllWrappers = hasRemoveAllWrappers(fn)
 
                 for (param in fn.parameters) {
                     val source = detectParameterSourceByAnnotation(param)
@@ -136,19 +139,28 @@ class KastApiProcessor(
         }
 
         val generators = collectIndexedValues(options, "org.darchest.kastapi.generators")
+            .ifEmpty { listOf(
+                "org.darchest.kastapi.processor.KtorGenerator",
+                "org.darchest.kastapi.processor.OpenAPIGenerator",
+        ) }
 
-        if (generators.contains("org.darchest.kastapi.processor.KastApiProcessor") || generators.isEmpty()) {
-            val generator = KtorGenerator(resolver, codeGenerator, logger, options)
+        for (generatorName in generators) {
+            val cls = Class.forName(generatorName).kotlin
+            val generator = cls.constructors.first().call() as KastAPIGenerator
+            generator.init(resolver, codeGenerator, logger, options)
             generator.generateFiles(packages.values.toSet())
         }
 
-        if (generators.contains("org.darchest.kastapi.processor.OpenAPIGenerator") || generators.isEmpty()) {
-            val docsGenerator = OpenAPIGenerator(resolver, codeGenerator, logger, options)
-            docsGenerator.generateFiles(packages.values.toSet())
-        }
-
-
         return emptyList()
+    }
+
+    private fun collectAllFunctions(c: KSClassDeclaration): Sequence<KSFunctionDeclaration> {
+        val own = c.getDeclaredFunctions()
+
+        val parents = c.superTypes
+            .mapNotNull { it.resolve().declaration as? KSClassDeclaration }
+
+        return own + parents.flatMap { collectAllFunctions(it) }
     }
 
     private val annoToParameterSource = listOf(
@@ -203,6 +215,11 @@ class KastApiProcessor(
         return list
     }
 
+    private fun hasRemoveAllWrappers(decl: KSDeclaration): Boolean {
+        val anno = decl.annotations.find { it.shortName.asString() == "RemoveAllWrappers" }
+        return anno != null
+    }
+
     private val annoToHttpMethod = listOf(
         Delete::class.simpleName to "delete",
         Get::class.simpleName to "get",
@@ -226,15 +243,17 @@ class KastApiProcessor(
         return path.ifBlank { fn.simpleName.asString() }
     }
 
-    fun <T> collectIndexedValues(map: Map<String, T>, prefix: String): List<T> {
-        val result = mutableListOf<T>()
-        var index = 0
-        while (true) {
-            val key = "$prefix.$index"
-            val value = map[key] ?: break
-            result += value
-            index++
+    companion object {
+        fun <T> collectIndexedValues(map: Map<String, T>, prefix: String): List<T> {
+            val result = mutableListOf<T>()
+            var index = 0
+            while (true) {
+                val key = "$prefix.$index"
+                val value = map[key] ?: break
+                result += value
+                index++
+            }
+            return result
         }
-        return result
     }
 }
