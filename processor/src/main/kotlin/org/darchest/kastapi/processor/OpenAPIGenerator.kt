@@ -9,6 +9,7 @@ import com.google.devtools.ksp.getClassDeclarationByName
 import com.google.devtools.ksp.processing.Dependencies
 import com.google.devtools.ksp.processing.Resolver
 import com.google.devtools.ksp.symbol.ClassKind
+import com.google.devtools.ksp.symbol.KSAnnotation
 import com.google.devtools.ksp.symbol.KSClassDeclaration
 import com.google.devtools.ksp.symbol.KSType
 import io.swagger.v3.core.util.Yaml
@@ -24,6 +25,8 @@ import io.swagger.v3.oas.models.responses.ApiResponse
 import io.swagger.v3.oas.models.responses.ApiResponses
 import io.swagger.v3.oas.models.security.SecurityRequirement
 import io.swagger.v3.oas.models.security.SecurityScheme
+import io.swagger.v3.oas.models.tags.Tag
+import org.darchest.kastapi.annotations.TagsInfo
 import java.util.*
 
 typealias SchemaConverter = (String) -> Schema<*>
@@ -35,6 +38,10 @@ class OpenAPIGenerator: KastAPIGenerator() {
 
         val api = OpenAPI()
             .info(Info().title(getOpt("title") ?: "KastAPI API").version(getOpt("version") ?: "1.0.0"))
+
+        for ((name, description) in collectTagDescriptions()) {
+            api.addTagsItem(Tag().name(name).description(description))
+        }
 
         for (pkg in packages) {
             val pkgPath = getOpt("package.${pkg.name}.path") ?: ""
@@ -55,6 +62,10 @@ class OpenAPIGenerator: KastAPIGenerator() {
                     val method = resolveHttpMethod(endpoint)
                     val operation = Operation()
                         .responses(responses)
+
+                    for (tag in (bundle.tags + endpoint.tags).distinct()) {
+                        operation.addTagsItem(tag)
+                    }
 
                     for (arg in endpoint.arguments) {
                         if (arg.source == ParameterSource.Path && arg.type != "io.ktor.server.application.ApplicationCall") {
@@ -141,6 +152,26 @@ class OpenAPIGenerator: KastAPIGenerator() {
         }
 
         Yaml.mapper().writeValue(file, api)
+    }
+
+    private fun collectTagDescriptions(): Map<String, String> {
+        val result = linkedMapOf<String, String>()
+
+        resolver.getSymbolsWithAnnotation(TagsInfo::class.qualifiedName!!)
+            .filterIsInstance<KSClassDeclaration>()
+            .filter { it.classKind == ClassKind.OBJECT }
+            .forEach { decl ->
+                val anno = decl.annotations.find { it.shortName.asString() == "TagsInfo" } ?: return@forEach
+                val entries = anno.arguments.firstOrNull()?.value as? List<*> ?: return@forEach
+                for (entry in entries) {
+                    if (entry !is KSAnnotation) continue
+                    val name = entry.arguments.find { it.name?.asString() == "name" }?.value as? String ?: continue
+                    val description = entry.arguments.find { it.name?.asString() == "description" }?.value as? String ?: ""
+                    result[name] = description
+                }
+            }
+
+        return result
     }
 
     private fun resolveResponses(endpointInfo: EndpointInfo): ApiResponses {

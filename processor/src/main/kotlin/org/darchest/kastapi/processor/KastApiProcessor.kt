@@ -28,6 +28,7 @@ class RoutesBundleInfo(
 ) {
     val wrappers = mutableListOf<String>()
     val removedWrappers = mutableListOf<String>()
+    val tags = mutableListOf<String>()
     val endpoints = mutableListOf<EndpointInfo>()
 }
 
@@ -40,6 +41,7 @@ class EndpointInfo(
     var codeOnSuccess: Int? = null
     val wrappers = mutableListOf<String>()
     val removedWrappers = mutableListOf<String>()
+    val tags = mutableListOf<String>()
     var removeAllWrappers = false
     var pairWithCode: Boolean = false
     var fileResult: Boolean = false
@@ -89,6 +91,7 @@ class KastApiProcessor(
 
             bundle.wrappers.addAll(getAddWrappersList(routeCls))
             bundle.removedWrappers.addAll(getRemoveWrappersList(routeCls))
+            bundle.tags.addAll(getTagsList(routeCls))
 
             pkg.bundles += bundle
 
@@ -122,6 +125,7 @@ class KastApiProcessor(
 
                 endpointInfo.wrappers.addAll(getAddWrappersList(fn))
                 endpointInfo.removedWrappers.addAll(getRemoveWrappersList(fn))
+                endpointInfo.tags.addAll(getTagsList(fn))
                 endpointInfo.removeAllWrappers = hasRemoveAllWrappers(fn)
 
                 for (param in fn.parameters) {
@@ -191,6 +195,11 @@ class KastApiProcessor(
         if (packageNameAnno != null)
             return packageNameAnno.arguments[0].value as String
         return ""
+    }
+
+    private fun getTagsList(decl: KSDeclaration): List<String> {
+        val anno = decl.annotations.find { it.shortName.asString() == "Tags" } ?: return emptyList()
+        return (anno.arguments.firstOrNull()?.value as? List<*>)?.mapNotNull { it as? String } ?: emptyList()
     }
 
     private fun getAddWrappersList(decl: KSDeclaration): List<String> {
