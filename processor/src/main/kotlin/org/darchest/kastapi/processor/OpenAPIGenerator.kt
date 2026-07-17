@@ -236,6 +236,10 @@ class OpenAPIGenerator: KastAPIGenerator() {
         val fqName = decl.qualifiedName?.asString() ?: return ObjectSchema()
         cache[fqName]?.let { return it }
 
+        val exampleValue = decl.annotations
+            .find { it.shortName.asString() == "Example" }
+            ?.arguments?.find { it.name?.asString() == "value" }?.value as? String
+
         when (fqName) {
             "kotlin.String" -> return StringSchema()
             in setOf("kotlin.Int", "kotlin.Long") -> return IntegerSchema()
@@ -313,6 +317,9 @@ class OpenAPIGenerator: KastAPIGenerator() {
         }
 
         if (required.isNotEmpty()) schema.required(required.distinct())
+        if (exampleValue != null) {
+            schema.example(Yaml.mapper().readValue(exampleValue, Any::class.java))
+        }
         return schema
     }
 
