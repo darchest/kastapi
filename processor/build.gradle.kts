@@ -17,6 +17,7 @@ dependencies {
     implementation("com.google.devtools.ksp:symbol-processing-api:2.0.10-1.0.24")
 
     implementation("org.jetbrains.kotlin:kotlin-reflect:1.8.22")
+    implementation("com.squareup:kotlinpoet:2.2.0")
 
     implementation("io.swagger.core.v3:swagger-core:2.2.40")
     implementation("io.swagger.core.v3:swagger-models:2.2.40")
