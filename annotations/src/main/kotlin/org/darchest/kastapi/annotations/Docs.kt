@@ -17,4 +17,4 @@ annotation class TagsInfo(vararg val tags: TagEntry)
 
 @Target(AnnotationTarget.CLASS)
 @Retention(AnnotationRetention.SOURCE)
-annotation class Example(val value: String?)
+annotation class Example(val value: String)
