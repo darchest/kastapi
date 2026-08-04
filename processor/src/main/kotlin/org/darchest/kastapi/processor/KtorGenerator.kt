@@ -37,7 +37,7 @@ class KtorGenerator: KastAPIGenerator() {
 
                 val fileSpecBuilder = FileSpec.builder(packageName, fileName)
                 fileSpecBuilder.addImport("io.ktor.server.application", "call")
-                bundle.endpoints.mapNotNull { it.method }.toSet().forEach { method ->
+                collectHttpMethods(bundle).forEach { method ->
                     fileSpecBuilder.addImport("io.ktor.server.routing", method)
                 }
                 fileSpecBuilder.addFunction(buildBundleFunction(bundle, fnName))
@@ -102,17 +102,34 @@ class KtorGenerator: KastAPIGenerator() {
         }
     }
 
+    private fun collectHttpMethods(bundle: RoutesBundleInfo): Set<String> {
+        val methods = bundle.endpoints.mapNotNull { it.method }.toMutableSet()
+        for (child in bundle.children) {
+            methods += collectHttpMethods(child)
+        }
+        return methods
+    }
+
     private fun buildBundleFunction(bundle: RoutesBundleInfo, fnName: String): FunSpec {
         return FunSpec.builder(fnName)
             .receiver(routeClass)
             .addCode(buildCodeBlock {
-                beginControlFlow("%M(%S)", routeMember, PathParamAliases.rewriteForKtor(bundle.path))
-                for (endpoint in bundle.endpoints) {
-                    add(buildEndpointCode(endpoint, bundle))
-                }
-                endControlFlow()
+                add(buildBundleRouteBody(bundle))
             })
             .build()
+    }
+
+    private fun buildBundleRouteBody(bundle: RoutesBundleInfo): CodeBlock {
+        return buildCodeBlock {
+            beginControlFlow("%M(%S)", routeMember, PathParamAliases.rewriteForKtor(bundle.path))
+            for (endpoint in bundle.endpoints) {
+                add(buildEndpointCode(endpoint, bundle))
+            }
+            for (child in bundle.children) {
+                add(buildBundleRouteBody(child))
+            }
+            endControlFlow()
+        }
     }
 
     private fun buildEndpointCode(endpoint: EndpointInfo, bundle: RoutesBundleInfo): CodeBlock {
@@ -255,10 +272,15 @@ class KtorGenerator: KastAPIGenerator() {
         val globalWrappers = KastApiProcessor.collectIndexedValues(options, "org.darchest.kastapi.defaultWrappers")
         allWrappers.addAll(globalWrappers)
 
-        allWrappers.addAll(bundle.wrappers.distinct())
-        allWrappers.removeAll { bundle.removedWrappers.contains(if (it.contains('(')) it.substring(0, it.indexOf('(')) else it) }
+        fun wrapperKey(it: String) = if (it.contains('(')) it.substring(0, it.indexOf('(')) else it
+
+        for (ancestor in bundle.ancestorChain()) {
+            allWrappers.addAll(ancestor.wrappers.distinct())
+            allWrappers.removeAll { ancestor.removedWrappers.contains(wrapperKey(it)) }
+        }
+
         allWrappers.addAll(endpoint.wrappers.distinct())
-        allWrappers.removeAll { endpoint.removedWrappers.contains(if (it.contains('(')) it.substring(0, it.indexOf('(')) else it) }
+        allWrappers.removeAll { endpoint.removedWrappers.contains(wrapperKey(it)) }
 
         if (endpoint.removeAllWrappers)
             allWrappers.clear()

@@ -55,107 +55,121 @@ class OpenAPIGenerator: KastAPIGenerator() {
             }
 
             for (bundle in pkg.bundles) {
-                for (endpoint in bundle.endpoints) {
-
-                    val responses = resolveResponses(endpoint)
-
-                    val method = resolveHttpMethod(endpoint)
-                    val operation = Operation()
-                        .responses(responses)
-
-                    for (tag in (bundle.tags + endpoint.tags).distinct()) {
-                        operation.addTagsItem(tag)
-                    }
-
-                    for (arg in endpoint.arguments) {
-                        if (arg.source == ParameterSource.Path && arg.type != "io.ktor.server.application.ApplicationCall") {
-                            operation.addParametersItem(
-                                Parameter().`in`("path")
-                                    .name(arg.openApiName)
-                                    .required(arg.canBeNull.not())
-                            )
-                        } else if (arg.source == ParameterSource.Query) {
-                            operation.addParametersItem(
-                                Parameter().`in`("query")
-                                    .name(arg.name)
-                                    .required(arg.canBeNull.not())
-                            )
-                        }
-                    }
-
-                    var requestBody: RequestBody? = null
-
-                    if (endpoint.arguments.find { it.source == ParameterSource.Form } != null) {
-                        val formSchema = ObjectSchema()
-
-                        for (arg in endpoint.arguments) {
-                            if (arg.source != ParameterSource.Form)
-                                continue
-
-                            formSchema.addProperty(arg.name, resolver.buildSchemaByName(arg.type))
-                        }
-
-                        requestBody = RequestBody().content(
-                            Content().addMediaType(
-                                "application/x-www-form-urlencoded",
-                                MediaType().schema(formSchema)
-                            )
-                        )
-                    }
-
-                    if (endpoint.arguments.find { it.source == ParameterSource.Multipart } != null) {
-                        val formSchema = ObjectSchema()
-
-                        for (arg in endpoint.arguments) {
-                            if (arg.source != ParameterSource.Multipart)
-                                continue
-
-                            formSchema.addProperty(arg.name, resolver.buildSchemaByName(arg.type))
-                        }
-
-                        requestBody = RequestBody().content(
-                            Content().addMediaType(
-                                "multipart/form-data",
-                                MediaType().schema(formSchema)
-                            )
-                        )
-                    }
-
-                    if (endpoint.arguments.find { it.source == ParameterSource.Body } != null) {
-                        var formSchema: Schema<*>? = null
-
-                        for (arg in endpoint.arguments) {
-                            if (arg.source != ParameterSource.Body)
-                                continue
-
-                            formSchema = resolver.buildSchemaByName(arg.type)
-                        }
-
-                        requestBody = RequestBody().content(
-                            Content().addMediaType(
-                                "application/json",
-                                MediaType().schema(formSchema)
-                            )
-                        )
-                    }
-
-                    requestBody?.let { operation.requestBody(it) }
-                    securityType?.let { operation.security = listOf(securityReq) }
-
-                    val pathItem = PathItem()
-                    pathItem.operation(method, operation)
-
-                    val localUrl = joinUrlParts(
-                        pkgPath,
-                        PathParamAliases.rewriteForOpenApi(bundle.path),
-                        PathParamAliases.rewriteForOpenApi(endpoint.path),
-                    )
-                    api.path("/$localUrl", pathItem)
-                }
+                addBundleEndpoints(api, pkgPath, securityType, securityReq, bundle)
             }
         }
 
         Yaml.mapper().writeValue(file, api)
+    }
+
+    private fun addBundleEndpoints(
+        api: OpenAPI,
+        pkgPath: String,
+        securityType: String?,
+        securityReq: SecurityRequirement,
+        bundle: RoutesBundleInfo,
+    ) {
+        for (endpoint in bundle.endpoints) {
+
+            val responses = resolveResponses(endpoint)
+
+            val method = resolveHttpMethod(endpoint)
+            val operation = Operation()
+                .responses(responses)
+
+            for (tag in (bundle.tagsChain() + endpoint.tags).distinct()) {
+                operation.addTagsItem(tag)
+            }
+
+            for (arg in endpoint.arguments) {
+                if (arg.source == ParameterSource.Path && arg.type != "io.ktor.server.application.ApplicationCall") {
+                    operation.addParametersItem(
+                        Parameter().`in`("path")
+                            .name(arg.openApiName)
+                            .required(arg.canBeNull.not())
+                    )
+                } else if (arg.source == ParameterSource.Query) {
+                    operation.addParametersItem(
+                        Parameter().`in`("query")
+                            .name(arg.name)
+                            .required(arg.canBeNull.not())
+                    )
+                }
+            }
+
+            var requestBody: RequestBody? = null
+
+            if (endpoint.arguments.find { it.source == ParameterSource.Form } != null) {
+                val formSchema = ObjectSchema()
+
+                for (arg in endpoint.arguments) {
+                    if (arg.source != ParameterSource.Form)
+                        continue
+
+                    formSchema.addProperty(arg.name, resolver.buildSchemaByName(arg.type))
+                }
+
+                requestBody = RequestBody().content(
+                    Content().addMediaType(
+                        "application/x-www-form-urlencoded",
+                        MediaType().schema(formSchema)
+                    )
+                )
+            }
+
+            if (endpoint.arguments.find { it.source == ParameterSource.Multipart } != null) {
+                val formSchema = ObjectSchema()
+
+                for (arg in endpoint.arguments) {
+                    if (arg.source != ParameterSource.Multipart)
+                        continue
+
+                    formSchema.addProperty(arg.name, resolver.buildSchemaByName(arg.type))
+                }
+
+                requestBody = RequestBody().content(
+                    Content().addMediaType(
+                        "multipart/form-data",
+                        MediaType().schema(formSchema)
+                    )
+                )
+            }
+
+            if (endpoint.arguments.find { it.source == ParameterSource.Body } != null) {
+                var formSchema: Schema<*>? = null
+
+                for (arg in endpoint.arguments) {
+                    if (arg.source != ParameterSource.Body)
+                        continue
+
+                    formSchema = resolver.buildSchemaByName(arg.type)
+                }
+
+                requestBody = RequestBody().content(
+                    Content().addMediaType(
+                        "application/json",
+                        MediaType().schema(formSchema)
+                    )
+                )
+            }
+
+            requestBody?.let { operation.requestBody(it) }
+            securityType?.let { operation.security = listOf(securityReq) }
+
+            val pathItem = PathItem()
+            pathItem.operation(method, operation)
+
+            val localUrl = joinUrlParts(
+                pkgPath,
+                PathParamAliases.rewriteForOpenApi(bundle.fullPath()),
+                PathParamAliases.rewriteForOpenApi(endpoint.path),
+            )
+            api.path("/$localUrl", pathItem)
+        }
+
+        for (child in bundle.children) {
+            addBundleEndpoints(api, pkgPath, securityType, securityReq, child)
+        }
     }
 
     private fun collectTagDescriptions(): Map<String, String> {

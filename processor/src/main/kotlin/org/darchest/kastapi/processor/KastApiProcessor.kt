@@ -26,10 +26,22 @@ class RoutesBundleInfo(
     val cls: KSClassDeclaration,
     val path: String
 ) {
+    var parent: RoutesBundleInfo? = null
+    val children = mutableListOf<RoutesBundleInfo>()
     val wrappers = mutableListOf<String>()
     val removedWrappers = mutableListOf<String>()
     val tags = mutableListOf<String>()
     val endpoints = mutableListOf<EndpointInfo>()
+
+    fun pathChain(): List<String> = (parent?.pathChain().orEmpty()) + path
+
+    fun fullPath(): String =
+        pathChain().filter { it.isNotEmpty() }.joinToString("/") { it.trim('/') }
+
+    fun tagsChain(): List<String> = (parent?.tagsChain().orEmpty()) + tags
+
+    fun ancestorChain(): List<RoutesBundleInfo> =
+        generateSequence(this) { it.parent }.toList().asReversed()
 }
 
 class EndpointInfo(
@@ -53,7 +65,7 @@ class ArgumentInfo(
     val type: String,
     val canBeNull: Boolean,
     val source: ParameterSource,
-    val openApiName: String = name,
+    var openApiName: String = name,
 )
 
 enum class ParameterSource {
@@ -77,76 +89,37 @@ class KastApiProcessor(
         if (routes.none()) return emptyList()
 
         val packages = mutableMapOf<String, PackageInfo>()
+        val allBundles = mutableListOf<RoutesBundleInfo>()
+        val byCls = mutableMapOf<KSClassDeclaration, RoutesBundleInfo>()
 
         for (routeCls in routes) {
-            val packageName = getPackageName(routeCls)
-
-            val pkg = packages.getOrPut(packageName) { PackageInfo(packageName) }
-
             val bundlePath = getRouteBundlePath(routeCls)
-
-            val bundle = RoutesBundleInfo(
-                routeCls,
-                bundlePath
-            )
+            val bundle = RoutesBundleInfo(routeCls, bundlePath)
 
             bundle.wrappers.addAll(getAddWrappersList(routeCls))
             bundle.removedWrappers.addAll(getRemoveWrappersList(routeCls))
             bundle.tags.addAll(getTagsList(routeCls))
 
-            pkg.bundles += bundle
+            byCls[routeCls] = bundle
+            allBundles += bundle
+            fillEndpoints(bundle)
+        }
 
-            val functions = collectAllFunctions(routeCls)
+        for (bundle in allBundles) {
+            val parentDecl = bundle.cls.parentDeclaration as? KSClassDeclaration ?: continue
+            val parent = byCls[parentDecl] ?: continue
+            bundle.parent = parent
+            parent.children += bundle
+        }
 
-            for (fn in functions) {
-                val pair = getFnHttpMethodAndPath(fn) ?: continue
-                val (httpMethod, path) = pair
+        for (bundle in allBundles) {
+            if (bundle.parent != null) continue
+            val packageName = getPackageName(bundle.cls)
+            packages.getOrPut(packageName) { PackageInfo(packageName) }.bundles += bundle
+        }
 
-                val endpointInfo = EndpointInfo(
-                    httpMethod,
-                    fn.simpleName.asString(),
-                    path
-                )
-                bundle.endpoints += endpointInfo
-
-                var returnType = fn.returnType?.resolve()
-                if (returnType != null && returnType.declaration.qualifiedName?.asString() == "kotlin.Pair") {
-                    endpointInfo.pairWithCode = returnType.arguments[0].type?.resolve()?.declaration?.qualifiedName?.asString() == "kotlin.Int"
-                    returnType = returnType.arguments[1].type?.resolve()
-                }
-
-                if (returnType != null && returnType.declaration.qualifiedName?.asString() == "org.darchest.kastapi.ktor.utility.InMemoryFile") {
-                    endpointInfo.fileResult = true
-                }
-                endpointInfo.returnType = returnType?.declaration?.qualifiedName?.asString() ?: "Unit"
-
-                val codeAnno = fn.annotations.find { it.shortName.asString() == "CodeOnSuccess" }
-                if (codeAnno != null)
-                    endpointInfo.codeOnSuccess = codeAnno.arguments[0].value as Int
-
-                endpointInfo.wrappers.addAll(getAddWrappersList(fn))
-                endpointInfo.removedWrappers.addAll(getRemoveWrappersList(fn))
-                endpointInfo.tags.addAll(getTagsList(fn))
-                endpointInfo.removeAllWrappers = hasRemoveAllWrappers(fn)
-
-                for (param in fn.parameters) {
-                    val source = detectParameterSourceByAnnotation(param)
-                    val type = param.type.resolve()
-                    val paramName = param.name!!.asString()
-                    val openApiName = if (source == ParameterSource.Path)
-                        PathParamAliases.displayNameFor(paramName, bundlePath, path)
-                    else
-                        paramName
-                    val arg = ArgumentInfo(
-                        paramName,
-                        type.declaration.qualifiedName!!.asString(),
-                        type.isMarkedNullable,
-                        source,
-                        openApiName,
-                    )
-                    endpointInfo.arguments.add(arg)
-                }
-            }
+        for (bundle in allBundles) {
+            resolvePathAliases(bundle)
         }
 
         val generators = collectIndexedValues(options, "org.darchest.kastapi.generators")
@@ -163,6 +136,66 @@ class KastApiProcessor(
         }
 
         return emptyList()
+    }
+
+    private fun fillEndpoints(bundle: RoutesBundleInfo) {
+        for (fn in collectAllFunctions(bundle.cls)) {
+            val pair = getFnHttpMethodAndPath(fn) ?: continue
+            val (httpMethod, path) = pair
+
+            val endpointInfo = EndpointInfo(
+                httpMethod,
+                fn.simpleName.asString(),
+                path
+            )
+            bundle.endpoints += endpointInfo
+
+            var returnType = fn.returnType?.resolve()
+            if (returnType != null && returnType.declaration.qualifiedName?.asString() == "kotlin.Pair") {
+                endpointInfo.pairWithCode = returnType.arguments[0].type?.resolve()?.declaration?.qualifiedName?.asString() == "kotlin.Int"
+                returnType = returnType.arguments[1].type?.resolve()
+            }
+
+            if (returnType != null && returnType.declaration.qualifiedName?.asString() == "org.darchest.kastapi.ktor.utility.InMemoryFile") {
+                endpointInfo.fileResult = true
+            }
+            endpointInfo.returnType = returnType?.declaration?.qualifiedName?.asString() ?: "Unit"
+
+            val codeAnno = fn.annotations.find { it.shortName.asString() == "CodeOnSuccess" }
+            if (codeAnno != null)
+                endpointInfo.codeOnSuccess = codeAnno.arguments[0].value as Int
+
+            endpointInfo.wrappers.addAll(getAddWrappersList(fn))
+            endpointInfo.removedWrappers.addAll(getRemoveWrappersList(fn))
+            endpointInfo.tags.addAll(getTagsList(fn))
+            endpointInfo.removeAllWrappers = hasRemoveAllWrappers(fn)
+
+            for (param in fn.parameters) {
+                val source = detectParameterSourceByAnnotation(param)
+                val type = param.type.resolve()
+                val paramName = param.name!!.asString()
+                val arg = ArgumentInfo(
+                    paramName,
+                    type.declaration.qualifiedName!!.asString(),
+                    type.isMarkedNullable,
+                    source,
+                )
+                endpointInfo.arguments.add(arg)
+            }
+        }
+    }
+
+    private fun resolvePathAliases(bundle: RoutesBundleInfo) {
+        val chainPaths = bundle.pathChain()
+        for (endpoint in bundle.endpoints) {
+            for (arg in endpoint.arguments) {
+                if (arg.source != ParameterSource.Path) continue
+                arg.openApiName = PathParamAliases.displayNameFor(
+                    arg.name,
+                    *(chainPaths + endpoint.path).toTypedArray()
+                )
+            }
+        }
     }
 
     private fun collectAllFunctions(c: KSClassDeclaration): Sequence<KSFunctionDeclaration> {
