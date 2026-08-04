@@ -71,7 +71,7 @@ class OpenAPIGenerator: KastAPIGenerator() {
                         if (arg.source == ParameterSource.Path && arg.type != "io.ktor.server.application.ApplicationCall") {
                             operation.addParametersItem(
                                 Parameter().`in`("path")
-                                    .name(arg.name)
+                                    .name(arg.openApiName)
                                     .required(arg.canBeNull.not())
                             )
                         } else if (arg.source == ParameterSource.Query) {
@@ -145,7 +145,11 @@ class OpenAPIGenerator: KastAPIGenerator() {
                     val pathItem = PathItem()
                     pathItem.operation(method, operation)
 
-                    val localUrl = joinUrlParts(pkgPath, bundle.path, endpoint.path)
+                    val localUrl = joinUrlParts(
+                        pkgPath,
+                        PathParamAliases.rewriteForOpenApi(bundle.path),
+                        PathParamAliases.rewriteForOpenApi(endpoint.path),
+                    )
                     api.path("/$localUrl", pathItem)
                 }
             }

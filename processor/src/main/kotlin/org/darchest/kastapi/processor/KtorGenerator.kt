@@ -106,7 +106,7 @@ class KtorGenerator: KastAPIGenerator() {
         return FunSpec.builder(fnName)
             .receiver(routeClass)
             .addCode(buildCodeBlock {
-                beginControlFlow("%M(%S)", routeMember, bundle.path)
+                beginControlFlow("%M(%S)", routeMember, PathParamAliases.rewriteForKtor(bundle.path))
                 for (endpoint in bundle.endpoints) {
                     add(buildEndpointCode(endpoint, bundle))
                 }
@@ -117,7 +117,7 @@ class KtorGenerator: KastAPIGenerator() {
 
     private fun buildEndpointCode(endpoint: EndpointInfo, bundle: RoutesBundleInfo): CodeBlock {
         return buildCodeBlock {
-            beginControlFlow("%L(%S)", endpoint.method, endpoint.path)
+            beginControlFlow("%L(%S)", endpoint.method, PathParamAliases.rewriteForKtor(endpoint.path))
 
             val args = mutableListOf<String>()
             val hasMultipart = endpoint.arguments.any { it.source == ParameterSource.Multipart }

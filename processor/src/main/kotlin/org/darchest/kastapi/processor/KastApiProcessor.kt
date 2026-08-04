@@ -52,7 +52,8 @@ class ArgumentInfo(
     val name: String,
     val type: String,
     val canBeNull: Boolean,
-    val source: ParameterSource
+    val source: ParameterSource,
+    val openApiName: String = name,
 )
 
 enum class ParameterSource {
@@ -131,11 +132,17 @@ class KastApiProcessor(
                 for (param in fn.parameters) {
                     val source = detectParameterSourceByAnnotation(param)
                     val type = param.type.resolve()
+                    val paramName = param.name!!.asString()
+                    val openApiName = if (source == ParameterSource.Path)
+                        PathParamAliases.displayNameFor(paramName, bundlePath, path)
+                    else
+                        paramName
                     val arg = ArgumentInfo(
-                        param.name!!.asString(),
+                        paramName,
                         type.declaration.qualifiedName!!.asString(),
                         type.isMarkedNullable,
-                        source
+                        source,
+                        openApiName,
                     )
                     endpointInfo.arguments.add(arg)
                 }
