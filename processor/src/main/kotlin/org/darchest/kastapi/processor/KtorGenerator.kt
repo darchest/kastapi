@@ -19,50 +19,98 @@ class KtorGenerator: KastAPIGenerator() {
 
     override fun generateFiles(packages: Set<PackageInfo>) {
         val packageName = "org.darchest.kastapi.generated"
-        val className = "GeneratedRoutes"
+        val allSourceFiles = mutableSetOf<KSFile>()
+        val usedBaseNames = mutableSetOf<String>()
 
-        val files = mutableSetOf<KSFile>()
-        packages.forEach { pkg ->
-            pkg.bundles.forEach { bundle ->
-                files += bundle.cls.containingFile!!
-            }
-        }
+        data class BundleRef(val fnName: String, val fileName: String)
 
-        val fileSpecBuilder = FileSpec.builder(packageName, className)
-        fileSpecBuilder.addImport("io.ktor.server.application", "call")
-        packages.flatMap { it.bundles }.flatMap { it.endpoints }
-            .mapNotNull { it.method }
-            .toSet()
-            .forEach { method ->
-                fileSpecBuilder.addImport("io.ktor.server.routing", method)
-            }
+        val packageBundleFns = mutableMapOf<PackageInfo, List<BundleRef>>()
+
         for (pkg in packages) {
-            fileSpecBuilder.addFunction(buildRoutesFunction(pkg))
+            val refs = mutableListOf<BundleRef>()
+            for (bundle in pkg.bundles) {
+                val (fileName, fnName) = allocateBundleNames(bundle, usedBaseNames)
+                refs += BundleRef(fnName, fileName)
+
+                val sourceFile = bundle.cls.containingFile!!
+                allSourceFiles += sourceFile
+
+                val fileSpecBuilder = FileSpec.builder(packageName, fileName)
+                fileSpecBuilder.addImport("io.ktor.server.application", "call")
+                bundle.endpoints.mapNotNull { it.method }.toSet().forEach { method ->
+                    fileSpecBuilder.addImport("io.ktor.server.routing", method)
+                }
+                fileSpecBuilder.addFunction(buildBundleFunction(bundle, fnName))
+
+                writeKotlinFile(
+                    Dependencies(false, sourceFile),
+                    packageName,
+                    fileName,
+                    fileSpecBuilder.build()
+                )
+            }
+            packageBundleFns[pkg] = refs
         }
-        val fileSpec = fileSpecBuilder.build()
 
-        val file = codeGenerator.createNewFile(
-            Dependencies(true, *files.toTypedArray()),
+        val aggregatorBuilder = FileSpec.builder(packageName, "GeneratedRoutes")
+        for (pkg in packages) {
+            aggregatorBuilder.addFunction(
+                FunSpec.builder("${pkg.name}Routes")
+                    .receiver(routeClass)
+                    .addCode(buildCodeBlock {
+                        for (ref in packageBundleFns[pkg].orEmpty()) {
+                            addStatement("%L()", ref.fnName)
+                        }
+                    })
+                    .build()
+            )
+        }
+
+        writeKotlinFile(
+            Dependencies(true, *allSourceFiles.toTypedArray()),
             packageName,
-            className
+            "GeneratedRoutes",
+            aggregatorBuilder.build()
         )
+    }
 
+    private fun allocateBundleNames(
+        bundle: RoutesBundleInfo,
+        usedBaseNames: MutableSet<String>
+    ): Pair<String, String> {
+        val simpleName = bundle.cls.simpleName.asString()
+        var base = simpleName
+        var suffix = 1
+        while (!usedBaseNames.add(base)) {
+            suffix++
+            base = "${simpleName}_$suffix"
+        }
+        val fileName = "${base}Routes"
+        val fnName = base.replaceFirstChar { it.lowercaseChar() } + "Routes"
+        return fileName to fnName
+    }
+
+    private fun writeKotlinFile(
+        dependencies: Dependencies,
+        packageName: String,
+        fileName: String,
+        fileSpec: FileSpec
+    ) {
+        val file = codeGenerator.createNewFile(dependencies, packageName, fileName)
         OutputStreamWriter(file, Charsets.UTF_8).use { writer ->
             fileSpec.writeTo(writer)
         }
     }
 
-    private fun buildRoutesFunction(pkg: PackageInfo): FunSpec {
-        return FunSpec.builder("${pkg.name}Routes")
+    private fun buildBundleFunction(bundle: RoutesBundleInfo, fnName: String): FunSpec {
+        return FunSpec.builder(fnName)
             .receiver(routeClass)
             .addCode(buildCodeBlock {
-                for (bundle in pkg.bundles) {
-                    beginControlFlow("%M(%S)", routeMember, bundle.path)
-                    for (endpoint in bundle.endpoints) {
-                        add(buildEndpointCode(endpoint, bundle))
-                    }
-                    endControlFlow()
+                beginControlFlow("%M(%S)", routeMember, bundle.path)
+                for (endpoint in bundle.endpoints) {
+                    add(buildEndpointCode(endpoint, bundle))
                 }
+                endControlFlow()
             })
             .build()
     }
