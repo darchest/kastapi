@@ -73,8 +73,19 @@ class OpenAPIGenerator: KastAPIGenerator() {
 
             val responses = resolveResponses(endpoint)
 
+            val localUrl = joinUrlParts(
+                pkgPath,
+                PathParamAliases.rewriteForOpenApi(bundle.fullPath()),
+                PathParamAliases.rewriteForOpenApi(endpoint.path),
+            )
+            val operationId = localUrl
+                .replace("{", "")
+                .replace("}", "")
+                .replace("/", "_")
+
             val method = resolveHttpMethod(endpoint)
             val operation = Operation()
+                .operationId(operationId)
                 .responses(responses)
 
             for (tag in (bundle.tagsChain() + endpoint.tags).distinct()) {
@@ -159,11 +170,6 @@ class OpenAPIGenerator: KastAPIGenerator() {
             val pathItem = PathItem()
             pathItem.operation(method, operation)
 
-            val localUrl = joinUrlParts(
-                pkgPath,
-                PathParamAliases.rewriteForOpenApi(bundle.fullPath()),
-                PathParamAliases.rewriteForOpenApi(endpoint.path),
-            )
             api.path("/$localUrl", pathItem)
         }
 
