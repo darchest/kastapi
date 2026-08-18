@@ -33,11 +33,14 @@ typealias SchemaConverter = (String) -> Schema<*>
 
 class OpenAPIGenerator: KastAPIGenerator() {
 
+    private lateinit var api: OpenAPI
+
     override fun generateFiles(packages: Set<PackageInfo>) {
         val file = codeGenerator.createNewFileByPath(Dependencies(false), "openapi", "yaml")
 
-        val api = OpenAPI()
+        api = OpenAPI()
             .info(Info().title(getOpt("title") ?: "KastAPI API").version(getOpt("version") ?: "1.0.0"))
+            .components(Components())
 
         for ((name, description) in collectTagDescriptions()) {
             api.addTagsItem(Tag().name(name).description(description))
@@ -51,7 +54,7 @@ class OpenAPIGenerator: KastAPIGenerator() {
                 val bearerScheme = SecurityScheme()
                     .type(SecurityScheme.Type.HTTP)
                     .scheme("bearer")
-                api.components(Components().addSecuritySchemes("bearerAuth", bearerScheme))
+                api.components.addSecuritySchemes("bearerAuth", bearerScheme)
             }
 
             for (bundle in pkg.bundles) {
@@ -211,10 +214,7 @@ class OpenAPIGenerator: KastAPIGenerator() {
     }
 
 
-    private val responsesCache = mutableMapOf<String, ApiResponse>()
     private fun resolveResponse(cls: String): ApiResponse {
-        responsesCache[cls]?.let { return it }
-
         if (cls != "kotlin.String") {
             val openApiSchema = resolver.buildSchemaByName(cls)
             return ApiResponse()
@@ -248,40 +248,39 @@ class OpenAPIGenerator: KastAPIGenerator() {
         return PathItem.HttpMethod.valueOf(endpointInfo.method!!.uppercase(Locale.getDefault()))
     }
 
+    private fun schemaName(fqName: String): String = fqName.replace('$', '.')
+
+    private fun schemaRef(name: String): Schema<*> =
+        Schema<Any>().`$ref`("#/components/schemas/$name")
+
+    private fun registeredSchema(name: String): Schema<*>? =
+        api.components.schemas?.get(name)
+
     private fun Resolver.buildSchemaByName(className: String): Schema<*>? {
         val decl = getClassDeclarationByName(className) ?: return null
-        return buildSchemaForClass(decl, mutableMapOf())
+        return buildSchemaForClass(decl)
     }
 
-    private fun Resolver.buildSchemaForClass(
-        decl: KSClassDeclaration,
-        cache: MutableMap<String, ObjectSchema>
-    ): Schema<*> {
+    private fun Resolver.buildSchemaForClass(decl: KSClassDeclaration): Schema<*> {
         val fqName = decl.qualifiedName?.asString() ?: return ObjectSchema()
-        cache[fqName]?.let { return it }
+        inlineSchema(fqName)?.let { return it }
+
+        val name = schemaName(fqName)
+        if (registeredSchema(name) != null) {
+            return schemaRef(name)
+        }
 
         val exampleValue = decl.annotations
             .find { it.shortName.asString() == "Example" }
             ?.arguments?.find { it.name?.asString() == "value" }?.value as? String
 
-        when (fqName) {
-            "kotlin.String" -> return StringSchema()
-            in setOf("kotlin.Int", "kotlin.Long") -> return IntegerSchema()
-            in setOf("kotlin.Float", "kotlin.Double") -> return NumberSchema()
-            "kotlin.Boolean" -> return BooleanSchema()
-            "org.darchest.kastapi.ktor.utility.InMemoryFile" -> return Schema<Any>().type("string").format("binary")
-            "com.google.gson.JsonObject" -> return ObjectSchema()
-                    .additionalProperties(true)
-            "com.google.gson.JsonArray" -> return ArraySchema().items(StringSchema())
-        }
-
         val schema = ObjectSchema()
-        cache[fqName] = schema
+        api.components.addSchemas(name, schema)
 
         val required = mutableListOf<String>()
 
         decl.getAllProperties().forEach { prop ->
-            val name = prop.simpleName.asString()
+            val propName = prop.simpleName.asString()
             val type = prop.type.resolve()
             val typeDecl = type.declaration
             val typeName = typeDecl.qualifiedName?.asString()
@@ -300,7 +299,7 @@ class OpenAPIGenerator: KastAPIGenerator() {
                 typeName in setOf("kotlin.collections.List", "kotlin.collections.Set", "com.google.gson.JsonArray") -> {
                     val argType = type.arguments.firstOrNull()?.type?.resolve()
                     val itemsSchema = if (argType != null) {
-                        resolveSchemaForKSType(argType, cache)
+                        resolveSchemaForKSType(argType)
                     } else StringSchema()
                     ArraySchema().items(itemsSchema)
                 }
@@ -310,7 +309,7 @@ class OpenAPIGenerator: KastAPIGenerator() {
                     val keyType = type.arguments.getOrNull(0)?.type?.resolve()
                     val valueType = type.arguments.getOrNull(1)?.type?.resolve()
                     val additionalProps = if (valueType != null) {
-                        resolveSchemaForKSType(valueType, cache)
+                        resolveSchemaForKSType(valueType)
                     } else StringSchema()
                     ObjectSchema()
                         .additionalProperties(additionalProps)
@@ -318,21 +317,25 @@ class OpenAPIGenerator: KastAPIGenerator() {
                 }
 
                 // nested object
-                typeDecl is KSClassDeclaration -> buildSchemaForClass(typeDecl, cache)
+                typeDecl is KSClassDeclaration -> buildSchemaForClass(typeDecl)
 
                 // fallback
                 else -> StringSchema()
             }
 
-            schema.addProperty(name, propSchema)
-            if (!type.isMarkedNullable) required += name
+            schema.addProperty(propName, propSchema)
+            if (!type.isMarkedNullable) required += propName
         }
 
         // наследование
         decl.superTypes.forEach { superType ->
             val superDecl = superType.resolve().declaration
             if (superDecl is KSClassDeclaration && superDecl.classKind == ClassKind.CLASS) {
-                val parentSchema = buildSchemaForClass(superDecl, cache)
+                val parentFqName = superDecl.qualifiedName?.asString() ?: return@forEach
+                if (inlineSchema(parentFqName) != null) return@forEach
+
+                buildSchemaForClass(superDecl)
+                val parentSchema = registeredSchema(schemaName(parentFqName)) ?: return@forEach
                 parentSchema.properties?.forEach { (k, v) ->
                     if (!schema.properties.containsKey(k)) schema.addProperty(k, v)
                 }
@@ -344,10 +347,10 @@ class OpenAPIGenerator: KastAPIGenerator() {
         if (exampleValue != null) {
             schema.example(Yaml.mapper().readValue(exampleValue, Any::class.java))
         }
-        return schema
+        return schemaRef(name)
     }
 
-    private fun Resolver.resolveSchemaForKSType(type: KSType, cache: MutableMap<String, ObjectSchema>): Schema<*> {
+    private fun Resolver.resolveSchemaForKSType(type: KSType): Schema<*> {
         val decl = type.declaration
         val typeName = decl.qualifiedName?.asString()
 
@@ -358,15 +361,26 @@ class OpenAPIGenerator: KastAPIGenerator() {
             "kotlin.Boolean" -> BooleanSchema()
             "kotlin.collections.List", "kotlin.collections.Set" -> {
                 val arg = type.arguments.firstOrNull()?.type?.resolve()
-                val itemSchema = if (arg != null) resolveSchemaForKSType(arg, cache) else StringSchema()
+                val itemSchema = if (arg != null) resolveSchemaForKSType(arg) else StringSchema()
                 ArraySchema().items(itemSchema)
             }
             "kotlin.collections.Map" -> {
                 val valueArg = type.arguments.getOrNull(1)?.type?.resolve()
-                val valueSchema = if (valueArg != null) resolveSchemaForKSType(valueArg, cache) else StringSchema()
+                val valueSchema = if (valueArg != null) resolveSchemaForKSType(valueArg) else StringSchema()
                 ObjectSchema().additionalProperties(valueSchema)
             }
-            else -> if (decl is KSClassDeclaration) buildSchemaForClass(decl, cache) else StringSchema()
+            else -> if (decl is KSClassDeclaration) buildSchemaForClass(decl) else StringSchema()
         }
+    }
+
+    private fun inlineSchema(fqName: String): Schema<*>? = when (fqName) {
+        "kotlin.String" -> StringSchema()
+        "kotlin.Int", "kotlin.Long" -> IntegerSchema()
+        "kotlin.Float", "kotlin.Double" -> NumberSchema()
+        "kotlin.Boolean" -> BooleanSchema()
+        "org.darchest.kastapi.ktor.utility.InMemoryFile" -> Schema<Any>().type("string").format("binary")
+        "com.google.gson.JsonObject" -> ObjectSchema().additionalProperties(true)
+        "com.google.gson.JsonArray" -> ArraySchema().items(StringSchema())
+        else -> null
     }
 }
