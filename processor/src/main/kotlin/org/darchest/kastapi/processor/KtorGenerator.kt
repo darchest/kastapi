@@ -137,6 +137,7 @@ class KtorGenerator: KastAPIGenerator() {
             beginControlFlow("%L(%S)", endpoint.method, PathParamAliases.rewriteForKtor(endpoint.path))
 
             val args = mutableListOf<String>()
+            val localByName = mutableMapOf<String, String>()
             val hasMultipart = endpoint.arguments.any { it.source == ParameterSource.Multipart }
 
             if (endpoint.arguments.any { it.source == ParameterSource.Form }) {
@@ -148,11 +149,13 @@ class KtorGenerator: KastAPIGenerator() {
             endpoint.arguments.forEachIndexed { ind, arg ->
                 if (arg.type == applicationCallFqn) {
                     args += "call"
+                    localByName[arg.name] = "call"
                     return@forEachIndexed
                 }
 
                 val localName = "arg$ind"
                 args += localName
+                localByName[arg.name] = localName
                 val argType = ClassName.bestGuess(arg.type)
 
                 if (arg.source == ParameterSource.Multipart) {
@@ -196,12 +199,25 @@ class KtorGenerator: KastAPIGenerator() {
                 endControlFlow()
             }
 
+            val ctorArgs = constructorPathArguments(bundle, endpoint)
+            var nextArgIndex = endpoint.arguments.size
+            for (ctorArg in ctorArgs) {
+                if (ctorArg.name in localByName)
+                    continue
+                val localName = "arg$nextArgIndex"
+                nextArgIndex++
+                localByName[ctorArg.name] = localName
+                addStatement("val %L = %L", localName, parameterGetterCode(ctorArg))
+            }
+
             val allWrappers = resolveWrappers(bundle, endpoint)
             val apiClass = ClassName.bestGuess(bundle.cls.qualifiedName!!.asString())
-            addStatement("val api = %T()", apiClass)
+            val ctorCall = ctorArgs.joinToString(", ") { "${it.name} = ${localByName.getValue(it.name)}" }
+            val fnCall = args.joinToString(", ")
 
             if (allWrappers.isEmpty()) {
-                addStatement("val result = api.%L(%L)", endpoint.fnName, args.joinToString(", "))
+                addStatement("val api = %T(%L)", apiClass, ctorCall)
+                addStatement("val result = api.%L(%L)", endpoint.fnName, fnCall)
             } else {
                 add("val result = ")
                 for (wrapper in allWrappers) {
@@ -217,7 +233,8 @@ class KtorGenerator: KastAPIGenerator() {
                         beginControlFlow("%L().wrap", wrpName)
                     }
                 }
-                addStatement("api.%L(%L)", endpoint.fnName, args.joinToString(", "))
+                addStatement("val api = %T(%L)", apiClass, ctorCall)
+                addStatement("api.%L(%L)", endpoint.fnName, fnCall)
                 repeat(allWrappers.size) {
                     endControlFlow()
                 }

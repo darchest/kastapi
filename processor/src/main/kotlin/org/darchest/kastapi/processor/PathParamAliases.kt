@@ -27,4 +27,16 @@ object PathParamAliases {
         }
         return variableName
     }
+
+    fun variableNames(vararg paths: String): Set<String> {
+        val names = linkedSetOf<String>()
+        for (path in paths) {
+            for (match in anySegment.findAll(path)) {
+                val display = match.groupValues[1]
+                val variable = match.groupValues[2].ifEmpty { display }
+                names += variable
+            }
+        }
+        return names
+    }
 }

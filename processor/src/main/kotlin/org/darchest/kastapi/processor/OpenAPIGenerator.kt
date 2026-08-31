@@ -111,6 +111,21 @@ class OpenAPIGenerator: KastAPIGenerator() {
                 }
             }
 
+            val existingPathNames = endpoint.arguments
+                .filter { it.source == ParameterSource.Path }
+                .flatMap { listOf(it.name, it.openApiName) }
+                .toSet()
+
+            for (ctorArg in constructorPathArguments(bundle, endpoint)) {
+                if (ctorArg.name in existingPathNames || ctorArg.openApiName in existingPathNames)
+                    continue
+                operation.addParametersItem(
+                    Parameter().`in`("path")
+                        .name(ctorArg.openApiName)
+                        .required(ctorArg.canBeNull.not())
+                )
+            }
+
             var requestBody: RequestBody? = null
 
             if (endpoint.arguments.find { it.source == ParameterSource.Form } != null) {
