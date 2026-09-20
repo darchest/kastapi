@@ -96,7 +96,7 @@ class OpenAPIGenerator: KastAPIGenerator() {
             }
 
             for (arg in endpoint.arguments) {
-                if (arg.source == ParameterSource.Path && arg.type != "io.ktor.server.application.ApplicationCall") {
+                if (arg.source == ParameterSource.Path && arg.type != applicationCallFqn) {
                     operation.addParametersItem(
                         Parameter().`in`("path")
                             .name(arg.openApiName)
@@ -116,7 +116,9 @@ class OpenAPIGenerator: KastAPIGenerator() {
                 .flatMap { listOf(it.name, it.openApiName) }
                 .toSet()
 
-            for (ctorArg in constructorPathArguments(bundle, endpoint)) {
+            for (ctorArg in constructorArguments(bundle, endpoint)) {
+                if (ctorArg.type == applicationCallFqn)
+                    continue
                 if (ctorArg.name in existingPathNames || ctorArg.openApiName in existingPathNames)
                     continue
                 operation.addParametersItem(

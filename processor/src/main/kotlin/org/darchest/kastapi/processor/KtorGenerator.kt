@@ -199,9 +199,13 @@ class KtorGenerator: KastAPIGenerator() {
                 endControlFlow()
             }
 
-            val ctorArgs = constructorPathArguments(bundle, endpoint)
+            val ctorArgs = constructorArguments(bundle, endpoint)
             var nextArgIndex = endpoint.arguments.size
             for (ctorArg in ctorArgs) {
+                if (ctorArg.type == applicationCallFqn) {
+                    localByName[ctorArg.name] = "call"
+                    continue
+                }
                 if (ctorArg.name in localByName)
                     continue
                 val localName = "arg$nextArgIndex"
@@ -306,8 +310,6 @@ class KtorGenerator: KastAPIGenerator() {
     }
 
     companion object {
-        private const val applicationCallFqn = "io.ktor.server.application.ApplicationCall"
-
         private val routeClass = ClassName("io.ktor.server.routing", "Route")
         private val ktorUtility = ClassName("org.darchest.kastapi.ktor.utility", "KtorUtility")
 

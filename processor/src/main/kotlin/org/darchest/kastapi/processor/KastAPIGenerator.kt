@@ -25,23 +25,28 @@ abstract class KastAPIGenerator {
 
     abstract fun generateFiles(packages: Set<PackageInfo>)
 
-    protected fun constructorPathArguments(bundle: RoutesBundleInfo, endpoint: EndpointInfo): List<ArgumentInfo> {
+    protected fun constructorArguments(bundle: RoutesBundleInfo, endpoint: EndpointInfo): List<ArgumentInfo> {
         val paths = (bundle.pathChain() + endpoint.path).toTypedArray()
         val pathVars = PathParamAliases.variableNames(*paths)
         val ctor = bundle.cls.primaryConstructor ?: return emptyList()
         return ctor.parameters.mapNotNull { param ->
             if (param.isVararg) return@mapNotNull null
             val name = param.name?.asString() ?: return@mapNotNull null
-            if (name !in pathVars) return@mapNotNull null
             val type = param.type.resolve()
+            val typeFqn = type.declaration.qualifiedName!!.asString()
+            if (typeFqn != applicationCallFqn && name !in pathVars) return@mapNotNull null
             ArgumentInfo(
                 name,
-                type.declaration.qualifiedName!!.asString(),
+                typeFqn,
                 type.isMarkedNullable,
                 ParameterSource.Path,
             ).apply {
                 openApiName = PathParamAliases.displayNameFor(name, *paths)
             }
         }
+    }
+
+    companion object {
+        const val applicationCallFqn = "io.ktor.server.application.ApplicationCall"
     }
 }
