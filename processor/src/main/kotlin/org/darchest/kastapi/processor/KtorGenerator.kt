@@ -128,7 +128,7 @@ class KtorGenerator: KastAPIGenerator() {
             for (child in bundle.children) {
                 add(buildBundleRouteBody(child))
             }
-            endControlFlow()
+            endControlFlowWithProperties(bundle.properties)
         }
     }
 
@@ -260,18 +260,21 @@ class KtorGenerator: KastAPIGenerator() {
                 )
             }
 
-            val properties = resolveProperties(bundle, endpoint)
-            if (properties.isEmpty()) {
-                endControlFlow()
-            } else {
-                unindent()
-                add("}")
-                for ((key, value) in properties) {
-                    add(".%M(%S, %S)", setKastApiPropertyMember, key, value)
-                }
-                add("\n")
-            }
+            endControlFlowWithProperties(endpoint.properties)
         }
+    }
+
+    private fun CodeBlock.Builder.endControlFlowWithProperties(properties: List<Pair<String, String>>) {
+        if (properties.isEmpty()) {
+            endControlFlow()
+            return
+        }
+        unindent()
+        add("}")
+        for ((key, value) in properties) {
+            add(".%M(%S, %S)", setKastApiPropertyMember, key, value)
+        }
+        add("\n")
     }
 
     private fun parameterGetterCode(arg: ArgumentInfo): CodeBlock {
@@ -317,15 +320,6 @@ class KtorGenerator: KastAPIGenerator() {
             allWrappers.clear()
 
         return allWrappers
-    }
-
-    private fun resolveProperties(bundle: RoutesBundleInfo, endpoint: EndpointInfo): List<Pair<String, String>> {
-        val properties = mutableListOf<Pair<String, String>>()
-        for (ancestor in bundle.ancestorChain()) {
-            properties.addAll(ancestor.properties)
-        }
-        properties.addAll(endpoint.properties)
-        return properties
     }
 
     companion object {
