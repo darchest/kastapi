@@ -260,7 +260,17 @@ class KtorGenerator: KastAPIGenerator() {
                 )
             }
 
-            endControlFlow()
+            val properties = resolveProperties(bundle, endpoint)
+            if (properties.isEmpty()) {
+                endControlFlow()
+            } else {
+                unindent()
+                add("}")
+                for ((key, value) in properties) {
+                    add(".%M(%S, %S)", setKastApiPropertyMember, key, value)
+                }
+                add("\n")
+            }
         }
     }
 
@@ -309,11 +319,21 @@ class KtorGenerator: KastAPIGenerator() {
         return allWrappers
     }
 
+    private fun resolveProperties(bundle: RoutesBundleInfo, endpoint: EndpointInfo): List<Pair<String, String>> {
+        val properties = mutableListOf<Pair<String, String>>()
+        for (ancestor in bundle.ancestorChain()) {
+            properties.addAll(ancestor.properties)
+        }
+        properties.addAll(endpoint.properties)
+        return properties
+    }
+
     companion object {
         private val routeClass = ClassName("io.ktor.server.routing", "Route")
         private val ktorUtility = ClassName("org.darchest.kastapi.ktor.utility", "KtorUtility")
 
         private val routeMember = MemberName("io.ktor.server.routing", "route")
+        private val setKastApiPropertyMember = MemberName("org.darchest.kastapi.ktor.utility", "setKastApiProperty")
         private val receiveMember = MemberName("io.ktor.server.request", "receive")
         private val receiveParametersMember = MemberName("io.ktor.server.request", "receiveParameters")
         private val receiveMultipartMember = MemberName("io.ktor.server.request", "receiveMultipart")

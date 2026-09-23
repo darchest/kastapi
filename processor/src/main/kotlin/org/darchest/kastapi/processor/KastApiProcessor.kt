@@ -31,6 +31,7 @@ class RoutesBundleInfo(
     val wrappers = mutableListOf<String>()
     val removedWrappers = mutableListOf<String>()
     val tags = mutableListOf<String>()
+    val properties = mutableListOf<Pair<String, String>>()
     val endpoints = mutableListOf<EndpointInfo>()
 
     fun pathChain(): List<String> = (parent?.pathChain().orEmpty()) + path
@@ -54,6 +55,7 @@ class EndpointInfo(
     val wrappers = mutableListOf<String>()
     val removedWrappers = mutableListOf<String>()
     val tags = mutableListOf<String>()
+    val properties = mutableListOf<Pair<String, String>>()
     var removeAllWrappers = false
     var pairWithCode: Boolean = false
     var fileResult: Boolean = false
@@ -99,6 +101,7 @@ class KastApiProcessor(
             bundle.wrappers.addAll(getAddWrappersList(routeCls))
             bundle.removedWrappers.addAll(getRemoveWrappersList(routeCls))
             bundle.tags.addAll(getTagsList(routeCls))
+            bundle.properties.addAll(getAddProperties(routeCls))
 
             byCls[routeCls] = bundle
             allBundles += bundle
@@ -168,6 +171,7 @@ class KastApiProcessor(
             endpointInfo.wrappers.addAll(getAddWrappersList(fn))
             endpointInfo.removedWrappers.addAll(getRemoveWrappersList(fn))
             endpointInfo.tags.addAll(getTagsList(fn))
+            endpointInfo.properties.addAll(getAddProperties(fn))
             endpointInfo.removeAllWrappers = hasRemoveAllWrappers(fn)
 
             for (param in fn.parameters) {
@@ -235,6 +239,21 @@ class KastApiProcessor(
         if (packageNameAnno != null)
             return packageNameAnno.arguments[0].value as String
         return ""
+    }
+
+    private fun getAddProperties(decl: KSDeclaration): List<Pair<String, String>> {
+        return decl.annotations
+            .filter { it.shortName.asString() == "AddProperty" }
+            .mapNotNull { anno ->
+                val key = anno.arguments.find { it.name?.asString() == "key" }?.value as? String
+                    ?: anno.arguments.getOrNull(0)?.value as? String
+                    ?: return@mapNotNull null
+                val value = anno.arguments.find { it.name?.asString() == "value" }?.value as? String
+                    ?: anno.arguments.getOrNull(1)?.value as? String
+                    ?: return@mapNotNull null
+                key to value
+            }
+            .toList()
     }
 
     private fun getTagsList(decl: KSDeclaration): List<String> {

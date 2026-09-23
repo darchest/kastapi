@@ -43,6 +43,11 @@ annotation class Post(val path: String = "")
 @Retention(AnnotationRetention.SOURCE)
 annotation class Put(val path: String = "")
 
+@Repeatable
+@Target(AnnotationTarget.CLASS, AnnotationTarget.FUNCTION)
+@Retention(AnnotationRetention.SOURCE)
+annotation class AddProperty(val key: String, val value: String)
+
 @Target(AnnotationTarget.CLASS, AnnotationTarget.FUNCTION)
 @Retention(AnnotationRetention.SOURCE)
 annotation class AddWrappers(vararg val wrappers: KClass<*>)

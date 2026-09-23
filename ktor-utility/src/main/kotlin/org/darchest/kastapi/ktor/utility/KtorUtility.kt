@@ -9,6 +9,7 @@ import io.ktor.http.*
 import io.ktor.http.content.*
 import io.ktor.server.application.*
 import io.ktor.server.response.*
+import io.ktor.server.routing.*
 import java.nio.charset.StandardCharsets
 import java.util.*
 import kotlin.reflect.KClass
@@ -166,3 +167,12 @@ private fun rfc5987Encode(value: String): String {
     }
     return sb.toString()
 }
+
+private val kastApiProperties = mutableMapOf<Route, MutableMap<String, String>>()
+
+fun Route.setKastApiProperty(key: String, value: String): Route {
+    kastApiProperties.getOrPut(this) { mutableMapOf() }[key] = value
+    return this
+}
+
+fun Route.getKastApiProperty(key: String): String? = kastApiProperties[this]?.get(key)
